@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import express from 'express';
 import mongoose from 'mongoose';
 import helmet from 'helmet';
@@ -9,8 +10,11 @@ import {z} from 'zod';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Mystery,GameSession} from './models.js';
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 
-const app=express(); const port=Number(process.env.PORT)||5000;
+const app = express();
+app.set('trust proxy', 1);
+const port = Number(process.env.PORT) || 5000;
 class GeminiProviderError extends Error {
  constructor(cause,model){super('Gemini generation failed.');this.name='GeminiProviderError';this.status=Number.isInteger(cause?.status)?cause.status:undefined;this.model=model;this.providerMessage=String(cause?.message||'Unknown provider error');}
 }
@@ -24,7 +28,7 @@ async function generateWithFallback(ai,request){
  const primary=process.env.GEMINI_MODEL||'gemini-3.8-flash';
  const fallback=process.env.GEMINI_FALLBACK_MODEL||'gemini-3.5-flash-lite';
  const models=[...new Set([primary,fallback].filter(Boolean))];let lastError;
- for(let index=0;index<models.length;index+=1){const model=models[index];try{return await ai.models.generateContent({...request,model,config:{...request.config,abortSignal:AbortSignal.timeout(20_000)}});}catch(error){lastError=error;const retryable=[429,503].includes(error?.status)||error?.name==='AbortError';if(!retryable||index===models.length-1){error.geminiModel=model;throw error;}console.warn(JSON.stringify({event:'gemini_fallback_attempt',failedModel:model,providerStatus:Number.isInteger(error?.status)?error.status:null,fallbackModel:models[index+1]}));}}
+ for(let index=0;index<models.length;index+=1){const model=models[index];try{return await ai.models.generateContent({...request,model,config:{...request.config,abortSignal:AbortSignal.timeout(45_000)}});}catch(error){lastError=error;const retryable=[429,503].includes(error?.status)||error?.name==='AbortError';if(!retryable||index===models.length-1){error.geminiModel=model;throw error;}console.warn(JSON.stringify({event:'gemini_fallback_attempt',failedModel:model,providerStatus:Number.isInteger(error?.status)?error.status:null,fallbackModel:models[index+1]}));}}
  throw lastError;
 }
 app.disable('x-powered-by'); app.use(helmet({contentSecurityPolicy:false})); app.use(cors({origin:process.env.NODE_ENV==='production'?false:true})); app.use(express.json({limit:'20kb'}));
